@@ -30,7 +30,11 @@ Rules:
 - To take an order: ask for the customer's name if you don't have it, call quote_order, show the items and
   total, and ask them to confirm. Only call place_order after they clearly confirm in their next message.
   If they change anything, call quote_order again.
-- After placing an order, give the customer their order number and total."""
+- After placing an order, give the customer their order number and total.
+- Orders are only for immediate pickup or delivery; you cannot schedule an order for another day or time.
+  If the customer asks for a future day, call get_opening_hours, tell them that day's hours (or that the
+  restaurant is closed that day), and invite them to order then. Do not quote or place the order.
+- Write plain text only: no Markdown, no ** or #. Use short lines and hyphens for lists."""
 
 
 def run_tool(name, tool_input, session_id):

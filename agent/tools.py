@@ -1,9 +1,11 @@
 import json
 import sqlite3
 import uuid
+import os
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
 
 DB_PATH = Path(__file__).resolve().parent.parent / "restaurant.db"
 TIMEZONE = ZoneInfo("America/Monterrey")
@@ -89,6 +91,11 @@ def new_customer_turn(session_id):
 
 def quote_order(items, session_id):
     """Validates items against the database and prices them. Saves nothing."""
+    # Orders are prepared right away, so they're only accepted while the restaurant is open.
+    # ALLOW_ORDERS_WHEN_CLOSED=1 in .env switches this off for testing outside opening hours.
+    if os.getenv("ALLOW_ORDERS_WHEN_CLOSED") != "1" and not get_opening_hours()["abierto_ahora"]:
+        return {"error": "El restaurante está cerrado en este momento; no se pueden tomar pedidos. "
+                         "Consulta get_opening_hours para darle al cliente el horario."}
     conn = _connect()
     try:
         # Same dish listed twice becomes one line with the quantities added
