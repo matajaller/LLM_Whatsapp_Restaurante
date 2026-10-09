@@ -6,7 +6,6 @@ A customer-service agent for a (fictional) Mexican taquería, built on the Claud
 It answers questions about the menu, prices, opening hours and delivery, takes orders, and escalates
 to a human when it can't answer. Every fact it states comes from a SQL database, never from the model's memory.
 
-> Demo: _add GIF or video link here_
 
 ## What it does
 
