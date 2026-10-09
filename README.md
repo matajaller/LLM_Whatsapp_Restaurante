@@ -1,5 +1,7 @@
 # Taquería El Fogón: AI ordering agent
 
+![tests](https://github.com/matajaller/LLM_Whatsapp_Restaurante/actions/workflows/tests.yml/badge.svg)
+
 A customer-service agent for a (fictional) Mexican taquería, built on the Claude API with tool use.
 It answers questions about the menu, prices, opening hours and delivery, takes orders, and escalates
 to a human when it can't answer. Every fact it states comes from a SQL database, never from the model's memory.
