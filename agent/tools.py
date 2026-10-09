@@ -1,9 +1,9 @@
 import json
 import sqlite3
+import uuid
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
-import uuid
 
 DB_PATH = Path(__file__).resolve().parent.parent / "restaurant.db"
 TIMEZONE = ZoneInfo("America/Monterrey")
@@ -16,7 +16,7 @@ def _connect():
     return conn
 
 
-# ---- tool functions: each returns plain data the model can read ----
+# ---- read-only tools: each returns plain data the model can read ----
 
 def get_menu(category=None):
     """Full menu, or one category. Unavailable items are included but flagged."""
@@ -73,6 +73,7 @@ def get_business_info():
         return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM business_info")}
     finally:
         conn.close()
+
 
 # ---- ordering: quote first, then place only after the customer replies ----
 
@@ -149,6 +150,24 @@ def place_order(quote_id, customer_name, session_id):
     del _quotes[quote_id]
     return {"order_id": order_id, "total": quote["total"], "estado": "pending"}
 
+
+# ---- escalation to a human ----
+
+def request_staff_handoff(question, session_id, customer_name=None, contact=None):
+    """Saves a question for a staff member to answer; the agent can only promise a handoff if this succeeds."""
+    conn = _connect()
+    try:
+        with conn:
+            cur = conn.execute(
+                "INSERT INTO handoff_requests (session_id, customer_name, contact, question) VALUES (?, ?, ?, ?)",
+                (session_id, customer_name, contact, question),
+            )
+            ticket_id = cur.lastrowid
+    finally:
+        conn.close()
+    return {"ticket_id": ticket_id, "estado": "open"}
+
+
 # ---- descriptions the model reads to decide which tool to call ----
 
 TOOLS = [
@@ -212,6 +231,20 @@ TOOLS = [
             "required": ["quote_id", "customer_name"],
         },
     },
+    {
+        "name": "request_staff_handoff",
+        "description": "Passes a question to a human staff member. Use it when the customer agrees to escalate a question "
+                       "you cannot answer from the other tools (allergies, unlisted ingredients, special or large orders).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "The customer's question, summarised clearly for staff."},
+                "customer_name": {"type": "string"},
+                "contact": {"type": "string", "description": "Phone number or other way for staff to reply."},
+            },
+            "required": ["question"],
+        },
+    },
 ]
 
 # Maps a tool name from the model to the Python function that runs it
@@ -221,13 +254,15 @@ TOOL_FUNCTIONS = {
     "get_business_info": get_business_info,
     "quote_order": quote_order,
     "place_order": place_order,
+    "request_staff_handoff": request_staff_handoff,
 }
 
 # Tools that need to know which conversation they belong to; the agent passes session_id to these
-SESSION_TOOLS = {"quote_order", "place_order"}
+SESSION_TOOLS = {"quote_order", "place_order", "request_staff_handoff"}
+
 
 if __name__ == "__main__":
-    # Quick manual check of every tool, no LLM involved
+    # Quick manual check of the read-only tools, no LLM involved
     print(json.dumps(get_menu("Tacos"), ensure_ascii=False, indent=2))
     print(json.dumps(get_opening_hours(), ensure_ascii=False, indent=2))
     print(json.dumps(get_business_info(), ensure_ascii=False, indent=2))

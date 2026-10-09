@@ -38,3 +38,14 @@ CREATE TABLE IF NOT EXISTS order_items (
     unit_price   REAL NOT NULL,
     PRIMARY KEY (order_id, menu_item_id)
 );
+
+-- Questions the agent couldn't answer, waiting for a staff member
+CREATE TABLE IF NOT EXISTS handoff_requests (
+    id            INTEGER PRIMARY KEY,
+    session_id    TEXT NOT NULL,
+    customer_name TEXT,
+    contact       TEXT,
+    question      TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'open',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
