@@ -3,6 +3,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import uuid
 
 DB_PATH = Path(__file__).resolve().parent.parent / "restaurant.db"
 TIMEZONE = ZoneInfo("America/Monterrey")
@@ -73,6 +74,78 @@ def get_business_info():
     finally:
         conn.close()
 
+# ---- ordering: quote first, then place only after the customer replies ----
+
+# Quotes live in memory for now; one process = one conversation in the terminal version
+_quotes = {}
+_turn = {"n": 0}
+
+
+def new_customer_turn():
+    """Called by the agent each time the customer sends a message."""
+    _turn["n"] += 1
+
+
+def quote_order(items):
+    """Validates items against the database and prices them. Saves nothing."""
+    conn = _connect()
+    try:
+        # Same dish listed twice becomes one line with the quantities added
+        wanted = {}
+        for it in items:
+            key = it["name"].strip().lower()
+            wanted[key] = wanted.get(key, 0) + int(it["quantity"])
+
+        lines, problems = [], []
+        for key, qty in wanted.items():
+            row = conn.execute(
+                "SELECT id, name, price, available FROM menu_items WHERE LOWER(name) = ?", (key,)
+            ).fetchone()
+            if row is None:
+                problems.append(f"'{key}' no está en el menú")
+            elif not row["available"]:
+                problems.append(f"'{row['name']}' no está disponible hoy")
+            elif not 1 <= qty <= 50:
+                problems.append(f"cantidad inválida para '{row['name']}'")
+            else:
+                lines.append({"menu_item_id": row["id"], "name": row["name"], "quantity": qty,
+                              "unit_price": row["price"], "subtotal": row["price"] * qty})
+    finally:
+        conn.close()
+
+    if problems:
+        return {"error": "No se pudo cotizar el pedido", "problemas": problems}
+
+    quote_id = uuid.uuid4().hex[:8]
+    total = sum(l["subtotal"] for l in lines)
+    _quotes[quote_id] = {"lines": lines, "total": total, "turn": _turn["n"]}
+    return {"quote_id": quote_id, "lineas": lines, "total": total,
+            "siguiente_paso": "Show this summary to the customer and ask them to confirm."}
+
+
+def place_order(quote_id, customer_name):
+    """Saves a quoted order, but only after the customer has replied to the quote."""
+    quote = _quotes.get(quote_id)
+    if quote is None:
+        return {"error": "Quote not found. Create a new quote with quote_order."}
+    if quote["turn"] == _turn["n"]:
+        # Quote and placement in the same customer turn means nobody confirmed it
+        return {"error": "The customer has not confirmed yet. Show the summary and wait for their reply."}
+
+    conn = _connect()
+    try:
+        with conn:  # one transaction: the order and all its lines are saved together or not at all
+            cur = conn.execute("INSERT INTO orders (customer_name) VALUES (?)", (customer_name,))
+            order_id = cur.lastrowid
+            conn.executemany(
+                "INSERT INTO order_items (order_id, menu_item_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
+                [(order_id, l["menu_item_id"], l["quantity"], l["unit_price"]) for l in quote["lines"]],
+            )
+    finally:
+        conn.close()
+
+    del _quotes[quote_id]
+    return {"order_id": order_id, "total": quote["total"], "estado": "pending"}
 
 # ---- descriptions the model reads to decide which tool to call ----
 
@@ -102,6 +175,41 @@ TOOLS = [
         "description": "Returns address, accepted payment methods, delivery area, delivery cost and delivery time.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "quote_order",
+        "description": "Validates and prices an order using exact menu item names. Saves nothing. "
+                       "Always call this before place_order and show the customer the returned summary and total.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Exact menu item name, e.g. 'Taco al pastor'"},
+                            "quantity": {"type": "integer", "minimum": 1},
+                        },
+                        "required": ["name", "quantity"],
+                    },
+                }
+            },
+            "required": ["items"],
+        },
+    },
+    {
+        "name": "place_order",
+        "description": "Saves a quoted order. Only call it after the customer has explicitly confirmed "
+                       "the summary from quote_order in their latest message.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "quote_id": {"type": "string"},
+                "customer_name": {"type": "string"},
+            },
+            "required": ["quote_id", "customer_name"],
+        },
+    },
 ]
 
 # Maps a tool name from the model to the Python function that runs it
@@ -109,6 +217,8 @@ TOOL_FUNCTIONS = {
     "get_menu": get_menu,
     "get_opening_hours": get_opening_hours,
     "get_business_info": get_business_info,
+    "quote_order": quote_order,
+    "place_order": place_order,
 }
 
 
@@ -117,4 +227,3 @@ if __name__ == "__main__":
     print(json.dumps(get_menu("Tacos"), ensure_ascii=False, indent=2))
     print(json.dumps(get_opening_hours(), ensure_ascii=False, indent=2))
     print(json.dumps(get_business_info(), ensure_ascii=False, indent=2))
-    

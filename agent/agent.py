@@ -4,7 +4,7 @@ import os
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-from tools import TOOLS, TOOL_FUNCTIONS
+from tools import TOOLS, TOOL_FUNCTIONS, new_customer_turn
 
 load_dotenv(override=True)
 client = Anthropic()
@@ -23,8 +23,11 @@ Rules:
 - If a dish is marked unavailable, say it is not available today and suggest a similar available dish.
 - If the customer asks about something unrelated to the restaurant, politely say you can only help with
   the taquería's menu, hours, location and orders.
-- If you cannot answer from the tools, say so and offer to pass the question to a staff member."""
-
+- If you cannot answer from the tools, say so and offer to pass the question to a staff member.
+- To take an order: ask for the customer's name if you don't have it, call quote_order, show the items and
+  total, and ask them to confirm. Only call place_order after they clearly confirm in their next message.
+  If they change anything, call quote_order again.
+- After placing an order, give the customer their order number and total."""
 
 def run_tool(name, tool_input):
     """Runs one tool requested by the model; errors go back to the model instead of crashing the chat."""
@@ -40,6 +43,8 @@ def run_tool(name, tool_input):
 def chat_turn(messages):
     """Sends the conversation to the model, executes any tool calls, and returns the final reply text.
     `messages` is updated in place, so it keeps the full history for the next turn."""
+    new_customer_turn()
+
     for _ in range(MAX_TOOL_ROUNDS):
         response = client.messages.create(
             model=MODEL,
