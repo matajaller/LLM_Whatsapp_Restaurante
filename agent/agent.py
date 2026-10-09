@@ -4,7 +4,7 @@ import os
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-from tools import TOOLS, TOOL_FUNCTIONS, new_customer_turn
+from tools import TOOLS, TOOL_FUNCTIONS, SESSION_TOOLS, new_customer_turn
 
 load_dotenv(override=True)
 client = Anthropic()
@@ -29,21 +29,27 @@ Rules:
   If they change anything, call quote_order again.
 - After placing an order, give the customer their order number and total."""
 
-def run_tool(name, tool_input):
+
+def run_tool(name, tool_input, session_id):
     """Runs one tool requested by the model; errors go back to the model instead of crashing the chat."""
     func = TOOL_FUNCTIONS.get(name)
     if func is None:
         return json.dumps({"error": f"Unknown tool: {name}"}), True
     try:
-        return json.dumps(func(**tool_input), ensure_ascii=False), False
+        # session_id is added here by the code, never chosen by the model
+        if name in SESSION_TOOLS:
+            result = func(**tool_input, session_id=session_id)
+        else:
+            result = func(**tool_input)
+        return json.dumps(result, ensure_ascii=False), False
     except Exception as e:
         return json.dumps({"error": str(e)}), True
 
 
-def chat_turn(messages):
+def chat_turn(messages, session_id="cli"):
     """Sends the conversation to the model, executes any tool calls, and returns the final reply text.
     `messages` is updated in place, so it keeps the full history for the next turn."""
-    new_customer_turn()
+    new_customer_turn(session_id)
 
     for _ in range(MAX_TOOL_ROUNDS):
         response = client.messages.create(
@@ -63,7 +69,7 @@ def chat_turn(messages):
         for block in response.content:
             if block.type == "tool_use":
                 print(f"   [tool] {block.name}({block.input})")
-                output, is_error = run_tool(block.name, block.input)
+                output, is_error = run_tool(block.name, block.input, session_id)
                 results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,

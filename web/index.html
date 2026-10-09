@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taquería El Fogón</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #e5ddd5; height: 100vh; display: flex; flex-direction: column; }
+  header { background: #075e54; color: white; padding: 14px 16px; font-weight: 600; }
+  header small { display: block; font-weight: 400; opacity: .8; }
+  #chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 75%; padding: 8px 12px; border-radius: 8px; white-space: pre-wrap; line-height: 1.4; box-shadow: 0 1px 1px rgba(0,0,0,.1); }
+  .user { align-self: flex-end; background: #dcf8c6; }
+  .bot { align-self: flex-start; background: white; }
+  .typing { opacity: .6; font-style: italic; }
+  form { display: flex; gap: 8px; padding: 10px; background: #f0f0f0; }
+  input { flex: 1; padding: 12px; border: none; border-radius: 20px; font-size: 15px; }
+  button { background: #075e54; color: white; border: none; border-radius: 20px; padding: 0 18px; font-size: 15px; cursor: pointer; }
+  button:disabled { opacity: .5; }
+</style>
+</head>
+<body>
+<header>Taquería El Fogón<small>Asistente virtual</small></header>
+<div id="chat"></div>
+<form id="form">
+  <input id="input" placeholder="Escribe un mensaje" autocomplete="off" maxlength="1000">
+  <button id="send">Enviar</button>
+</form>
+<script>
+  // New conversation on every page load
+  const sessionId = crypto.randomUUID();
+  const chat = document.getElementById("chat");
+  const form = document.getElementById("form");
+  const input = document.getElementById("input");
+  const send = document.getElementById("send");
+
+  function addMessage(text, cls) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  addMessage("¡Hola! Soy el asistente de Taquería El Fogón. ¿En qué te ayudo?", "bot");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    addMessage(text, "user");
+    input.value = "";
+    send.disabled = true;
+    const typing = addMessage("escribiendo…", "bot typing");
+    try {
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, message: text }),
+      });
+      const data = await res.json();
+      typing.remove();
+      addMessage(data.reply, "bot");
+    } catch {
+      typing.remove();
+      addMessage("No pude conectar con el servidor. Intenta de nuevo.", "bot");
+    }
+    send.disabled = false;
+    input.focus();
+  });
+</script>
+</body>
+</html>

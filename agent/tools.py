@@ -76,17 +76,17 @@ def get_business_info():
 
 # ---- ordering: quote first, then place only after the customer replies ----
 
-# Quotes live in memory for now; one process = one conversation in the terminal version
-_quotes = {}
-_turn = {"n": 0}
+# In-memory state, kept separate per conversation (session)
+_quotes = {}   # quote_id -> {"session", "lines", "total", "turn"}
+_turns = {}    # session_id -> number of messages that customer has sent
 
 
-def new_customer_turn():
-    """Called by the agent each time the customer sends a message."""
-    _turn["n"] += 1
+def new_customer_turn(session_id):
+    """Called by the agent each time a customer sends a message."""
+    _turns[session_id] = _turns.get(session_id, 0) + 1
 
 
-def quote_order(items):
+def quote_order(items, session_id):
     """Validates items against the database and prices them. Saves nothing."""
     conn = _connect()
     try:
@@ -118,17 +118,19 @@ def quote_order(items):
 
     quote_id = uuid.uuid4().hex[:8]
     total = sum(l["subtotal"] for l in lines)
-    _quotes[quote_id] = {"lines": lines, "total": total, "turn": _turn["n"]}
+    _quotes[quote_id] = {"session": session_id, "lines": lines, "total": total,
+                         "turn": _turns.get(session_id, 0)}
     return {"quote_id": quote_id, "lineas": lines, "total": total,
             "siguiente_paso": "Show this summary to the customer and ask them to confirm."}
 
 
-def place_order(quote_id, customer_name):
-    """Saves a quoted order, but only after the customer has replied to the quote."""
+def place_order(quote_id, customer_name, session_id):
+    """Saves a quoted order, but only from the same conversation and only after the customer replied."""
     quote = _quotes.get(quote_id)
-    if quote is None:
+    # A quote from someone else's conversation is treated as if it didn't exist
+    if quote is None or quote["session"] != session_id:
         return {"error": "Quote not found. Create a new quote with quote_order."}
-    if quote["turn"] == _turn["n"]:
+    if quote["turn"] == _turns.get(session_id, 0):
         # Quote and placement in the same customer turn means nobody confirmed it
         return {"error": "The customer has not confirmed yet. Show the summary and wait for their reply."}
 
@@ -221,6 +223,8 @@ TOOL_FUNCTIONS = {
     "place_order": place_order,
 }
 
+# Tools that need to know which conversation they belong to; the agent passes session_id to these
+SESSION_TOOLS = {"quote_order", "place_order"}
 
 if __name__ == "__main__":
     # Quick manual check of every tool, no LLM involved
